@@ -4,17 +4,41 @@
 # In[ ]:
 
 
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+import os
+import sys
 
-tokenizer = AutoTokenizer.from_pretrained("deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B")
-model = AutoModelForCausalLM.from_pretrained("deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B")
+model_name = sys.argv[1]
+prompt = sys.argv[2]
+
+if len(sys.argv) > 3:
+    output_file = sys.argv[3]
+else:
+    output_file = "response.txt"
+
+output_file = os.path.join("/srv", output_file)
 
 
 # In[ ]:
 
 
-def generate_response(prompt, max_length=100):
+print(f"Model: {model_name}")
+print(f"Prompt: {prompt}")
+
+
+# In[ ]:
+
+
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True)
+
+
+# In[ ]:
+
+
+def generate_response(prompt, max_length=256):
     """
     Generate text response using the DeepSeek model
 
@@ -53,10 +77,14 @@ def generate_response(prompt, max_length=100):
 # In[ ]:
 
 
-prompt = "Hello, how are you?"
 response = generate_response(prompt)
-print(f"Prompt: {prompt}")
+
 print(f"Response: {response}")
+print(f"Output file: {output_file}")
 
 
 # In[ ]:
+
+
+with open(output_file, "w") as f:
+    f.write(response)

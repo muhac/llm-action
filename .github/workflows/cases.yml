@@ -2,92 +2,117 @@ name: Run LLMs
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
-
   docker:
     name: Run in Docker
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model:
+          [
+            "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+            "Qwen/Qwen2.5-1.5B-Instruct",
+            "Qwen/Qwen2.5-3B-Instruct",
+            "THUDM/chatglm3-6b",
+          ]
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Free disk space
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: true
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
 
-    - name: Pull Image
-      run: docker pull muhac/jupyter-pytorch:v2.5.1-lts
+      - name: Pull docker image
+        run: docker pull muhac/jupyter-pytorch:env-2502a
 
-    - name: Test Env
-      run: |
-        ls
-        docker run -v ./:/srv \
-        muhac/jupyter-pytorch:v2.5.1-lts \
-        bash -i -c "tree /srv"
+      - name: Test the environment
+        run: |
+          ls
+          docker run -v ./:/srv \
+          muhac/jupyter-pytorch:env-2502a \
+          bash -i -c "tree /srv"
 
-    - name: Run LLM
-      run: |
-        docker run -v ./:/srv \
-        muhac/jupyter-pytorch:v2.5.1-lts \
-        bash -i -c "python /srv/demo.py"
+      - name: Run LLM
+        run: |
+          docker run -v ./:/srv \
+          muhac/jupyter-pytorch:env-2502a \
+          bash -i -c "python /srv/huggingface.py ${{ matrix.model }} 'What is GitHub Actions?'"
+
+      - name: Show results
+        run: cat response.txt
 
   vllm:
     name: Run by vLLM
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model:
+          [
+            "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+            "Qwen/Qwen2.5-1.5B-Instruct",
+            "Qwen/Qwen2.5-3B-Instruct",
+          ]
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  # - name: Free disk space
-  #   uses: jlumbroso/free-disk-space@main
+      - name: Checkout vLLM
+        uses: actions/checkout@v4
+        with:
+          repository: "vllm-project/vllm"
+          ref: "v0.7.2"
 
-    - name: Checkout vLLM
-      uses: actions/checkout@v4
-      with:
-        repository: "vllm-project/vllm"
-        ref: "v0.7.2"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update  -y
+          sudo apt-get install -y gcc-12 g++-12 libnuma-dev
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10 --slave /usr/bin/g++ g++ /usr/bin/g++-12
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update  -y
-        sudo apt-get install -y gcc-12 g++-12 libnuma-dev
-        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10 --slave /usr/bin/g++ g++ /usr/bin/g++-12
+      - name: Build vLLM
+        run: |
+          pip install --upgrade pip
+          pip install "cmake>=3.26" wheel packaging ninja "setuptools-scm>=8" numpy
+          pip install -v -r requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          sudo -E VLLM_TARGET_DEVICE=cpu python setup.py install
 
-    - name: Build vLLM
-      run: |
-        pip install --upgrade pip
-        pip install "cmake>=3.26" wheel packaging ninja "setuptools-scm>=8" numpy
-        pip install -v -r requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
-        sudo -E VLLM_TARGET_DEVICE=cpu python setup.py install
+      - name: Install libraries
+        run: pip install openai
 
-    - name: Install libraries
-      run: |
-        pip install openai
+      - name: Run models
+        run: |
+          vllm serve ${{ matrix.model }} &> vllm.log &
+          sleep 120
+          cat vllm.log
+          while ! grep -q "running on http://0.0.0.0:8000" vllm.log; do
+              sleep 1
+          done
 
-    - name: Run models
-      run: |
-        vllm serve Qwen/Qwen2.5-1.5B-Instruct &> vllm.log &
-        while ! grep -q "running on http://0.0.0.0:8000" vllm.log; do
-            sleep 1
-        done
-        cat vllm.log
-        curl --retry 5 --retry-delay 10 http://localhost:8000/v1/models
+      - name: Show vLLM logs
+        run: cat vllm.log
 
-    - name: Demo Chat
-      run: |
-        curl http://localhost:8000/v1/chat/completions \
-        -H "Content-Type: application/json" \
-        -d '{
-            "model": "Qwen/Qwen2.5-1.5B-Instruct",
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Who won the world series in 2020?"}
-            ]
-        }'
+      - name: Test the server
+        run: curl --retry 5 --retry-delay 10 http://localhost:8000/v1/models
+
+      - name: Demo chat
+        run: |
+          curl http://localhost:8000/v1/chat/completions \
+          -o response.json \
+          -H "Content-Type: application/json" \
+          -d '{
+              "model": "${{ matrix.model }}",
+              "messages": [
+                  {"role": "system", "content": "You are a technical expert."},
+                  {"role": "user", "content": "What is GitHub Actions?"}
+              ]
+          }'
+
+      - name: Show response
+        run: cat response.json
