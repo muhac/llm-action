@@ -3,26 +3,10 @@
 
 # In[ ]:
 
-
-import os
 import sys
 
 model_name = sys.argv[1]
-prompt = sys.argv[2]
-
-if len(sys.argv) > 3:
-    output_file = sys.argv[3]
-else:
-    output_file = "response.txt"
-
-output_file = os.path.join("/srv", output_file)
-
-
-# In[ ]:
-
-
-print(f"Model: {model_name}")
-print(f"Prompt: {prompt}")
+prompts = sys.argv[2:]
 
 
 # In[ ]:
@@ -33,6 +17,9 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True)
+
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
 
 
 # In[ ]:
@@ -77,14 +64,26 @@ def generate_response(prompt, max_length=256):
 # In[ ]:
 
 
-response = generate_response(prompt)
+import time
 
-print(f"Response: {response}")
-print(f"Output file: {output_file}")
+result = ""
+
+for i, prompt in enumerate(prompts):
+    t = time.time()
+    response = generate_response(prompt)
+
+    print(f"Prompt {i}: {prompt}", end="\n\n")
+    print(f"Response {i}: {response}", end="\n\n")
+    print(f"Time taken: {time.time() - t:.2f}s", end="\n\n\n")
+
+    result += f"=== Prompt ===\n{prompt}\n\n"
+    result += f"=== Response ===\n{response}\n\n\n"
 
 
 # In[ ]:
 
+output_file = "/srv/response.txt"
+print(f"Output file: {output_file}")
 
 with open(output_file, "w") as f:
-    f.write(response)
+    f.write(result)

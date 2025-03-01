@@ -7,59 +7,74 @@ on:
     branches: ["main"]
 
 jobs:
-  docker:
-    name: Run in Docker
+  code:
+    name: Run Python Code
     runs-on: ubuntu-latest
     strategy:
       matrix:
         model:
           [
             "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-            "Qwen/Qwen2.5-1.5B-Instruct",
+            "google/gemma-2-2b-it",
             "Qwen/Qwen2.5-3B-Instruct",
-            "THUDM/chatglm3-6b",
+            "meta-llama/Llama-3.2-3B-Instruct",
+            "microsoft/Phi-4-mini-instruct",
           ]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: true
-
       - name: Pull docker image
         run: docker pull muhac/jupyter-pytorch:env-2502a
 
       - name: Test the environment
         run: |
-          ls
+          tree
           docker run -v ./:/srv \
           muhac/jupyter-pytorch:env-2502a \
-          bash -i -c "tree /srv"
+          bash -i -c "ls -lh /srv"
+
+      - name: Start Docker Container
+        run: |
+          docker run -d --name container -v ./:/srv \
+          muhac/jupyter-pytorch:env-2502a tail -f /dev/null
+
+      - name: Login to Hugging Face
+        run: |
+          docker exec container bash -i -c "huggingface-cli login --token ${{ secrets.HF }}"
+        continue-on-error: true
 
       - name: Run LLM
         run: |
-          docker run -v ./:/srv \
-          muhac/jupyter-pytorch:env-2502a \
-          bash -i -c "python /srv/huggingface.py ${{ matrix.model }} 'What is GitHub Actions?'"
+          docker exec container bash -i -c "python /srv/huggingface.py ${{ matrix.model }} \
+          'What is GitHub Actions?' \
+          '这不显得您枪法准是什么梗？' \
+          "
 
       - name: Show results
         run: cat response.txt
 
+      - name: Stop Docker Container
+        run: |
+          docker stop container
+          docker rm container
+
   vllm:
-    name: Run by vLLM
+    name: Hosted by vLLM
     runs-on: ubuntu-latest
     strategy:
       matrix:
         model:
           [
             "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-            "Qwen/Qwen2.5-1.5B-Instruct",
+            "google/gemma-2-2b-it",
             "Qwen/Qwen2.5-3B-Instruct",
+            "meta-llama/Llama-3.2-3B-Instruct",
+          # "microsoft/Phi-4-mini-instruct",
           ]
-
+    env:
+      LARGE_MODELS: '["meta-llama/Llama-3.2-3B-Instruct", "microsoft/Phi-4-mini-instruct"]'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,7 +88,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update  -y
-          sudo apt-get install -y gcc-12 g++-12 libnuma-dev
+          sudo apt-get install -y gcc-12 g++-12 libnuma-dev jq
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10 --slave /usr/bin/g++ g++ /usr/bin/g++-12
 
       - name: Build vLLM
@@ -84,18 +99,29 @@ jobs:
           sudo -E VLLM_TARGET_DEVICE=cpu python setup.py install
 
       - name: Install libraries
-        run: pip install openai
+        run: pip install openai huggingface_hub[cli]
+
+      - name: Login to Hugging Face
+        run: huggingface-cli login --token ${{ secrets.HF }}
+        continue-on-error: true
 
       - name: Run models
+        if: ${{ !contains(fromJSON(env.LARGE_MODELS), matrix.model) }}
+        run: vllm serve ${{ matrix.model }} &> vllm.log &
+
+      - name: Run models (Large)
+        if: ${{ contains(fromJSON(env.LARGE_MODELS), matrix.model) }}
+        run: vllm serve ${{ matrix.model }} --max-model-len 37440 &> vllm.log &
+
+      - name: Wait for the server
         run: |
-          vllm serve ${{ matrix.model }} &> vllm.log &
-          sleep 120
+          sleep 60   # for debugging, small models can be run with ~40s
           cat vllm.log
           while ! grep -q "running on http://0.0.0.0:8000" vllm.log; do
               sleep 1
           done
 
-      - name: Show vLLM logs
+      - name: Show logs
         run: cat vllm.log
 
       - name: Test the server
@@ -115,4 +141,19 @@ jobs:
           }'
 
       - name: Show response
-        run: cat response.json
+        run: cat response.json | jq . || cat response.json
+
+      - name: Demo chat (Chinese)
+        run: |
+          curl http://localhost:8000/v1/chat/completions \
+          -o response.json \
+          -H "Content-Type: application/json" \
+          -d '{
+              "model": "${{ matrix.model }}",
+              "messages": [
+                  {"role": "user", "content": "这不显得您枪法准是什么梗？"}
+              ]
+          }'
+
+      - name: Show response
+        run: cat response.json | jq . || cat response.json
