@@ -14,16 +14,24 @@ jobs:
       matrix:
         model:
           [
-            "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+            "Qwen/Qwen3-1.7B",
             "google/gemma-2-2b-it",
             "Qwen/Qwen2.5-3B-Instruct",
             "meta-llama/Llama-3.2-3B-Instruct",
             "microsoft/Phi-4-mini-instruct",
+            "Qwen/Qwen3-4B",
+            "Qwen/Qwen3-14B-AWQ",
           ]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          large-packages: false
+          swap-storage: false
 
       - name: Pull docker image
         run: docker pull muhac/jupyter-pytorch:env-2502a
@@ -48,8 +56,8 @@ jobs:
       - name: Run LLM
         run: |
           docker exec container bash -i -c "python /srv/huggingface.py ${{ matrix.model }} \
-          'What is GitHub Actions?' \
-          '这不显得您枪法准是什么梗？' \
+          'How many times does the letter R appear in the word strawberry?' \
+          '陨石为什么每次都能精准砸到陨石坑？' \
           "
 
       - name: Show results
@@ -67,23 +75,29 @@ jobs:
       matrix:
         model:
           [
-            "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+            "Qwen/Qwen3-1.7B",
             "google/gemma-2-2b-it",
             "Qwen/Qwen2.5-3B-Instruct",
             "meta-llama/Llama-3.2-3B-Instruct",
-          # "microsoft/Phi-4-mini-instruct",
+            "Qwen/Qwen3-4B",
+            "Qwen/Qwen3-8B-AWQ",
           ]
-    env:
-      LARGE_MODELS: '["meta-llama/Llama-3.2-3B-Instruct", "microsoft/Phi-4-mini-instruct"]'
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          large-packages: false
+          swap-storage: false
 
       - name: Checkout vLLM
         uses: actions/checkout@v4
         with:
           repository: "vllm-project/vllm"
-          ref: "v0.7.2"
+          ref: "v0.9.0"
 
       - name: Install dependencies
         run: |
@@ -95,7 +109,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install "cmake>=3.26" wheel packaging ninja "setuptools-scm>=8" numpy
-          pip install -v -r requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install -v -r requirements/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
           sudo -E VLLM_TARGET_DEVICE=cpu python setup.py install
 
       - name: Install libraries
@@ -106,20 +120,46 @@ jobs:
         continue-on-error: true
 
       - name: Run models
-        if: ${{ !contains(fromJSON(env.LARGE_MODELS), matrix.model) }}
         run: vllm serve ${{ matrix.model }} &> vllm.log &
 
-      - name: Run models (Large)
-        if: ${{ contains(fromJSON(env.LARGE_MODELS), matrix.model) }}
-        run: vllm serve ${{ matrix.model }} --max-model-len 37440 &> vllm.log &
-
-      - name: Wait for the server
+      - name: Check the server status
+        id: check_server
         run: |
-          sleep 60   # for debugging, small models can be run with ~40s
-          cat vllm.log
-          while ! grep -q "running on http://0.0.0.0:8000" vllm.log; do
-              sleep 1
+          for i in {1..30}; do
+              if curl -sSf http://localhost:8000/v1/models > /dev/null; then
+                exit 0  # Server started
+              fi
+              if grep -q "ValueError: The model's max seq len" vllm.log; then
+                exit 1  # Error detected
+              fi
+              sleep 10
           done
+          cat vllm.log
+        continue-on-error: true
+
+      - name: Fix max seq len issue
+        if: steps.check_server.outcome != 'success'
+        id: check_maxlen
+        run: |
+          allowed_len=$(grep -m1 -oP "tokens that can be stored in KV cache \\(\\K[0-9]+" vllm.log)
+          echo "Max sequence length issue detected, retrying with allowed length: $allowed_len"
+          echo "allowed_len=$allowed_len" >> "$GITHUB_OUTPUT"
+
+      - name: Run models (retry)
+        if: steps.check_server.outcome != 'success'
+        run: vllm serve ${{ matrix.model }} --max-model-len ${{ steps.check_maxlen.outputs.allowed_len }} &> vllm.log &
+
+      - name: Wait for the server to start
+        run: |
+          for i in {1..360}; do
+              if curl -sSf http://localhost:8000/v1/models > /dev/null; then
+                  break
+              fi
+              sleep 5
+          done
+          if ! curl -sSf http://localhost:8000/v1/models > /dev/null; then
+              echo "\nTimeout: Server did not start within 30 minutes."
+          fi
 
       - name: Show logs
         run: cat vllm.log
@@ -135,8 +175,8 @@ jobs:
           -d '{
               "model": "${{ matrix.model }}",
               "messages": [
-                  {"role": "system", "content": "You are a technical expert."},
-                  {"role": "user", "content": "What is GitHub Actions?"}
+                  {"role": "system", "content": "You are a teacher."},
+                  {"role": "user", "content": "How many times does the letter R appear in the word strawberry?"}
               ]
           }'
 
@@ -151,7 +191,7 @@ jobs:
           -d '{
               "model": "${{ matrix.model }}",
               "messages": [
-                  {"role": "user", "content": "这不显得您枪法准是什么梗？"}
+                  {"role": "user", "content": "陨石为什么每次都能精准砸到陨石坑？"}
               ]
           }'
 
