@@ -5,7 +5,7 @@ description: "Spin up a vLLM CPU server for any Hugging Face LLM model."
 author: "Muhan Li"
 branding:
   icon: "message-square"
-  color: "blue"
+  color: "red"
 
 ###############
 # Inputs & Outputs
@@ -138,6 +138,7 @@ runs:
       id: show_logs
       shell: bash
       run: |
+        cat vllm.log
         echo "log<<EOF" >> "$GITHUB_OUTPUT"
         cat vllm.log    >> "$GITHUB_OUTPUT"
         echo "EOF"      >> "$GITHUB_OUTPUT"

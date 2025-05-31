@@ -1,0 +1,68 @@
+name: LLM smoke test
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  infer:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model:
+          [
+            "Qwen/Qwen3-1.7B",
+            "Qwen/Qwen3-4B",
+            "Qwen/Qwen3-8B-AWQ",
+          ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run LLM inference
+        id: run_llm
+        uses: muhac/llm-actions@v1
+        with:
+          model: ${{ matrix.model }}
+
+      - name: Show vLLM logs
+        run: echo "${{ steps.run_llm.outputs.logs }}"
+
+      - name: List files
+        run: pwd && ls -lah
+
+      - name: Test the server
+        run: curl --retry 5 --retry-delay 10 http://localhost:8000/v1/models
+
+      - name: Demo chat
+        run: |
+          curl http://localhost:8000/v1/chat/completions \
+          -o response.json \
+          -H "Content-Type: application/json" \
+          -d '{
+              "model": "${{ matrix.model }}",
+              "messages": [
+                  {"role": "system", "content": "You are a teacher."},
+                  {"role": "user", "content": "How many times does the letter R appear in the word strawberry?"}
+              ]
+          }'
+
+      - name: Show response
+        run: cat response.json | jq . || cat response.json
+
+      - name: Demo chat (Chinese)
+        run: |
+          curl http://localhost:8000/v1/chat/completions \
+          -o response.json \
+          -H "Content-Type: application/json" \
+          -d '{
+              "model": "${{ matrix.model }}",
+              "messages": [
+                  {"role": "user", "content": "陨石为什么每次都能精准砸到陨石坑？"}
+              ]
+          }'
+
+      - name: Show response
+        run: cat response.json | jq . || cat response.json
