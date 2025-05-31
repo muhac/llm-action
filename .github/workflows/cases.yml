@@ -19,7 +19,7 @@ jobs:
             "Qwen/Qwen2.5-3B-Instruct",
             "meta-llama/Llama-3.2-3B-Instruct",
             "microsoft/Phi-4-mini-instruct",
-            "Qwen/Qwen3-4B",
+          # "Qwen/Qwen3-4B",
             "Qwen/Qwen3-14B-AWQ",
           ]
 
@@ -99,7 +99,7 @@ jobs:
           repository: "vllm-project/vllm"
           ref: "v0.9.0"
 
-      - name: Install dependencies
+      - name: Install OS  dependencies
         run: |
           sudo apt-get update  -y
           sudo apt-get install -y gcc-12 g++-12 libnuma-dev jq
@@ -112,17 +112,19 @@ jobs:
           pip install -v -r requirements/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
           sudo -E VLLM_TARGET_DEVICE=cpu python setup.py install
 
-      - name: Install libraries
+      - name: Install Python libraries
         run: pip install openai huggingface_hub[cli]
 
       - name: Login to Hugging Face
-        run: huggingface-cli login --token ${{ secrets.HF }}
+        env:
+          HF: ${{ secrets.HF }}
+        run: huggingface-cli login --token "$HF"
         continue-on-error: true
 
-      - name: Run models
-        run: vllm serve ${{ matrix.model }} &> vllm.log &
+      - name: Run vLLM server
+        run: vllm serve "${{ matrix.model }}" &> vllm.log &
 
-      - name: Check the server status
+      - name: Check server status
         id: check_server
         run: |
           for i in {1..30}; do
@@ -147,19 +149,17 @@ jobs:
 
       - name: Run models (retry)
         if: steps.check_server.outcome != 'success'
-        run: vllm serve ${{ matrix.model }} --max-model-len ${{ steps.check_maxlen.outputs.allowed_len }} &> vllm.log &
+        run: vllm serve "${{ matrix.model }}" --max-model-len ${{ steps.check_maxlen.outputs.allowed_len }} &> vllm.log &
 
-      - name: Wait for the server to start
+      - name: Wait for server to be ready
         run: |
           for i in {1..360}; do
               if curl -sSf http://localhost:8000/v1/models > /dev/null; then
-                  break
+                  echo "vLLM server is ready"; exit 0
               fi
               sleep 5
           done
-          if ! curl -sSf http://localhost:8000/v1/models > /dev/null; then
-              echo "\nTimeout: Server did not start within 30 minutes."
-          fi
+          echo "Timeout: server not ready in 30 min" && exit 1
 
       - name: Show logs
         run: cat vllm.log
