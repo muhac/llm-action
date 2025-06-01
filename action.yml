@@ -57,7 +57,7 @@ runs:
     - name: Build vLLM
       shell: bash
       run: |
-        cd ./.llm-actions
+        mkdir ../.llm-actions && mv ./.llm-actions ../.llm-actions/vllm && cd ../.llm-actions/vllm
         pip install --upgrade pip
         pip install "cmake>=3.26" wheel packaging ninja "setuptools-scm>=8" numpy
         pip install -v -r requirements/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
@@ -81,7 +81,7 @@ runs:
 
     - name: Run vLLM server
       shell: bash
-      run: vllm serve "${{ inputs.model }}" &> ./.llm-actions/vllm.log &
+      run: vllm serve "${{ inputs.model }}" &> ../.llm-actions/vllm.log &
 
     #########################################
     # 3. Error handling: max seq len exceeded
@@ -95,12 +95,12 @@ runs:
           if curl -sSf http://localhost:8000/v1/models > /dev/null; then
             exit 0  # Server started
           fi
-          if grep -q "ValueError: The model's max seq len" ./.llm-actions/vllm.log; then
+          if grep -q "ValueError: The model's max seq len" ../.llm-actions/vllm.log; then
             exit 1  # Error detected
           fi
           sleep 10
         done
-        cat ./.llm-actions/vllm.log
+        cat ../.llm-actions/vllm.log
       continue-on-error: true
 
     - name: Parse allowed length
@@ -108,7 +108,7 @@ runs:
       if: steps.check_server.outcome != 'success'
       shell: bash
       run: |
-        allowed_len=$(grep -m1 -oP "tokens that can be stored in KV cache \\(\\K[0-9]+" ./.llm-actions/vllm.log)
+        allowed_len=$(grep -m1 -oP "tokens that can be stored in KV cache \\(\\K[0-9]+" ../.llm-actions/vllm.log)
         echo "allowed_len=$allowed_len" >> "$GITHUB_OUTPUT"
 
     - name: Run vLLM server (retry)
@@ -116,7 +116,7 @@ runs:
       shell: bash
       run: |
         pkill -f "vllm.serve" || true
-        vllm serve "${{ inputs.model }}" --max-model-len ${{ steps.check_maxlen.outputs.allowed_len }} &> ./.llm-actions/vllm.log &
+        vllm serve "${{ inputs.model }}" --max-model-len ${{ steps.check_maxlen.outputs.allowed_len }} &> ../.llm-actions/vllm.log &
 
     #########################################
     # 5. Wait for server to be ready
@@ -141,7 +141,7 @@ runs:
       id: show_logs
       shell: bash
       run: |
-        cat ./.llm-actions/vllm.log
+        cat ../.llm-actions/vllm.log
         echo "log<<EOF"              >> "$GITHUB_OUTPUT"
-        cat ./.llm-actions/vllm.log  >> "$GITHUB_OUTPUT"
+        cat ../.llm-actions/vllm.log >> "$GITHUB_OUTPUT"
         echo "EOF"                   >> "$GITHUB_OUTPUT"
