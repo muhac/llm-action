@@ -26,7 +26,7 @@ jobs:
         # below are optional inputs
         with:
           model: Qwen/Qwen3-1.7B
-          vllm_version: v0.9.0
+          vllm_version: v0.9.0.1
           hf_token: ${{ secrets.HF_TOKEN }}
 
       # The rest of your workflow...
@@ -35,7 +35,7 @@ jobs:
 ### Inputs
 
 - `model`: The model to use for inference. Default is `Qwen/Qwen3-1.7B`.
-- `vllm_version`: The version of vllm to use. I tested with `v0.9.0`. You may want a newer version for support of more models, but the compiling process may be different.
+- `vllm_version`: The version of [vllm](https://github.com/vllm-project/vllm) to use. I tested with `v0.9.0.1`. You may want a newer version for support of more models, but the compiling process may be different.
 - `hf_token`: The Hugging Face token to use for downloading the model. If you are using a public model, you can leave it empty. If you are using a private model, you need to provide your Hugging Face token.
 
 ### Outputs

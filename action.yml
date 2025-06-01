@@ -12,15 +12,15 @@ branding:
 ###############
 inputs:
   model:
-    description: "Hugging Face model repo (default Qwen/Qwen3-1.7B)"
+    description: "Model name"
     required: false
     default: "Qwen/Qwen3-1.7B"
   vllm_version:
-    description: "vLLM git tag (default v0.9.0)"
+    description: "vLLM git tag"
     required: false
-    default: "v0.9.0"
+    default: "v0.9.0.1"
   hf_token:
-    description: "Optional Hugging Face access token"
+    description: "Hugging Face access token"
     required: false
 
 outputs:
