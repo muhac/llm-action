@@ -1,6 +1,6 @@
 # action.yml
 name: "LLM in GitHub Actions"
-description: "Spin up a vLLM CPU server for any Hugging Face LLM model."
+description: "Run an LLM model on a vLLM server inside your CI pipeline."
 
 author: "Muhan Li"
 branding:
@@ -91,35 +91,31 @@ runs:
       id: check_server
       shell: bash
       run: |
+        status="timeout"
         for i in {1..30}; do
           if curl -sSf http://localhost:8000/v1/models > /dev/null; then
-            exit 0  # Server started
+            status="ready"
+            break
           fi
           if grep -q "ValueError: The model's max seq len" ../.llm-actions/vllm.log; then
-            exit 1  # Error detected
+            status="maxlen"
+            break
           fi
           sleep 10
         done
-        cat ../.llm-actions/vllm.log
-      continue-on-error: true
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+        echo "Server status: $status"
 
-    - name: Parse allowed length
-      id: check_maxlen
-      if: steps.check_server.outcome != 'success'
-      shell: bash
-      run: |
-        allowed_len=$(grep -m1 -oP "tokens that can be stored in KV cache \\(\\K[0-9]+" ../.llm-actions/vllm.log)
-        echo "allowed_len=$allowed_len" >> "$GITHUB_OUTPUT"
-
-    - name: Run vLLM server (retry)
-      if: steps.check_server.outcome != 'success'
+    - name: Retry if max seq len exceeded
+      if: steps.check_server.outputs.status == 'maxlen'
       shell: bash
       run: |
         pkill -f "vllm.serve" || true
-        vllm serve "${{ inputs.model }}" --max-model-len ${{ steps.check_maxlen.outputs.allowed_len }} &> ../.llm-actions/vllm.log &
+        len=$(grep -m1 -oP "tokens that can be stored in KV cache \\(\\K[0-9]+" ../.llm-actions/vllm.log)
+        vllm serve "${{ inputs.model }}" --max-model-len $len &> ../.llm-actions/vllm.log &
 
     #########################################
-    # 5. Wait for server to be ready
+    # 4. Wait for server to be ready
     #########################################
 
     - name: Wait until ready (30 min max)
@@ -131,10 +127,11 @@ runs:
           fi
           sleep 5
         done
-        echo "Timeout: server not ready in 30 min" && exit 1
+        echo "Timeout: server not ready in 30 min"
+        cat ../.llm-actions/vllm.log && exit 1
 
     #########################################
-    # 6. Show logs
+    # 5. Show logs
     #########################################
 
     - name: Show logs
